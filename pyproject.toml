@@ -1,0 +1,24 @@
+[project]
+name = "adapa"
+version = "0.1.0"
+description = "Laser focal-spot detection and focal-length analysis engine"
+requires-python = ">=3.10"
+dependencies = [
+    "opencv-python>=4.9",
+    "numpy>=1.26",
+    "scipy>=1.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+fiji = ["pyimagej>=1.5"]
+
+[project.scripts]
+adapa = "adapa.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
