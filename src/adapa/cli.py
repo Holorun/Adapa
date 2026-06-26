@@ -9,7 +9,7 @@ import sys
 
 import cv2
 
-from .camera import PIXEL_SIZE_MM, CameraError, UvcCamera, VideoFileSource
+from .camera import DEFAULT_CHANNEL, PIXEL_SIZE_MM, CameraError, UvcCamera, VideoFileSource
 from .pipeline import FocalLengthEngine
 
 
@@ -40,7 +40,7 @@ def _print_fit(engine: FocalLengthEngine) -> None:
 def run_live(args: argparse.Namespace) -> int:
     engine = FocalLengthEngine(pixel_size=args.pixel_size, wavelength=args.wavelength)
     try:
-        with UvcCamera(index=args.camera_index) as cam:
+        with UvcCamera(index=args.camera_index, channel=args.channel) as cam:
             print("Press 'c' to capture a measurement at the current z, 'f' to fit, 'q' to quit.")
             z = 0.0
             while True:
@@ -64,7 +64,7 @@ def run_live(args: argparse.Namespace) -> int:
 def run_from_video(args: argparse.Namespace) -> int:
     engine = FocalLengthEngine(pixel_size=args.pixel_size, wavelength=args.wavelength)
     try:
-        with VideoFileSource(args.video) as src:
+        with VideoFileSource(args.video, channel=args.channel) as src:
             print(f"{src.frame_count} frames loaded.")
             print("space=pause/play, n=step forward, p=step back, c=capture, f=fit, q=quit.")
             z = 0.0
@@ -114,6 +114,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--wavelength", type=float, default=None, help="Laser wavelength, same length unit as pixel-size"
+    )
+    parser.add_argument(
+        "--channel",
+        type=str,
+        default=DEFAULT_CHANNEL,
+        choices=["red", "green", "blue", "gray", "max"],
+        help="Which intensity channel to read from each color frame (default: red, tuned for the 780nm laser)",
     )
     return parser
 

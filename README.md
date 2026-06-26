@@ -33,7 +33,14 @@ capture, then fitting once you have 3+ points spanning the focus:
 
 `--pixel-size` defaults to the See3CAM_CU27's 2.9 µm pitch (in mm); pass
 `--wavelength` in the same length unit (e.g. mm) if you want the far-field
-divergence angle reported too. In the capture window:
+divergence angle reported too. `--channel` (default `red`) picks which
+color channel to read intensity from - the camera is a color sensor, and
+for an NIR laser (e.g. 780nm) the red Bayer channel saturates well before
+green/blue, so it tracks true spot intensity far better than converting
+to perceptual grayscale (confirmed against real footage: luma-based sigma
+read ~30% larger than red-channel sigma on the same frames). Use `--channel
+gray` for a non-NIR/visible-balanced source, or `max` to take whichever
+channel is strongest per pixel. In the capture window:
 
 - `c` - capture a measurement at the current z (prompts for z on stdin)
 - `f` - fit the accumulated measurements and print the focal length
