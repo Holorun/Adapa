@@ -5,8 +5,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import cv2
 import numpy as np
-from scipy import optimize
+from scipy import ndimage, optimize
 
 
 @dataclass
@@ -64,24 +65,38 @@ def looks_like_glitch(frame: np.ndarray, prev_frame: np.ndarray | None, threshol
     return frame_difference(frame, prev_frame) > threshold
 
 
-def find_spot_roi(frame: np.ndarray, threshold_fraction: float = 0.5) -> tuple[slice, slice]:
-    """Crop a region of interest around the brightest blob via intensity threshold."""
-    values = frame.astype(np.float64)
-    threshold = values.min() + threshold_fraction * (values.max() - values.min())
-    mask = values >= threshold
+def find_spot_blobs(frame: np.ndarray, min_size: int = 9, pad: int = 10) -> list[tuple[slice, slice]]:
+    """Segment `frame` into distinct bright blobs and return a bounding-box
+    ROI (row_slice, col_slice) per blob, brightest first.
+
+    Uses Otsu's method - an automatic, histogram-driven threshold - rather
+    than a manually fixed cutoff fraction, since a fixed fraction has to be
+    re-tuned per image (not reproducible) and can't tell one blob from
+    several. Otsu suits this well: a laser spot (or several) against a
+    dark background is a clearly bimodal histogram, exactly what Otsu is
+    derived to split.
+    """
+    frame_u8 = frame if frame.dtype == np.uint8 else cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    _, mask = cv2.threshold(frame_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     if not mask.any():
-        raise ValueError("No pixels above threshold; spot not found")
+        return []
 
-    ys, xs = np.nonzero(mask)
-    pad = 10
-    y0, y1 = max(ys.min() - pad, 0), min(ys.max() + pad + 1, frame.shape[0])
-    x0, x1 = max(xs.min() - pad, 0), min(xs.max() + pad + 1, frame.shape[1])
-    return slice(y0, y1), slice(x0, x1)
+    labeled, n_labels = ndimage.label(mask)
+    blobs = []
+    for label_id in range(1, n_labels + 1):
+        ys, xs = np.nonzero(labeled == label_id)
+        if ys.size < min_size:
+            continue
+        brightness = float(frame[ys, xs].astype(np.float64).sum())
+        y0, y1 = max(ys.min() - pad, 0), min(ys.max() + pad + 1, frame.shape[0])
+        x0, x1 = max(xs.min() - pad, 0), min(xs.max() + pad + 1, frame.shape[1])
+        blobs.append((brightness, slice(y0, y1), slice(x0, x1)))
+
+    blobs.sort(key=lambda b: b[0], reverse=True)
+    return [(row_slice, col_slice) for _, row_slice, col_slice in blobs]
 
 
-def measure_spot(frame: np.ndarray, threshold_fraction: float = 0.5) -> SpotMeasurement:
-    """Locate the laser spot in a grayscale `frame` and fit a 2D Gaussian to it."""
-    row_slice, col_slice = find_spot_roi(frame, threshold_fraction)
+def _fit_gaussian(frame: np.ndarray, row_slice: slice, col_slice: slice) -> SpotMeasurement:
     roi = frame[row_slice, col_slice].astype(np.float64)
 
     yy, xx = np.mgrid[0 : roi.shape[0], 0 : roi.shape[1]]
@@ -110,3 +125,32 @@ def measure_spot(frame: np.ndarray, threshold_fraction: float = 0.5) -> SpotMeas
         amplitude=amplitude,
         background=background,
     )
+
+
+def measure_spots(frame: np.ndarray, min_size: int = 9) -> list[SpotMeasurement]:
+    """Detect every distinct bright blob in `frame` and fit a 2D Gaussian
+    to each, brightest first. Returns one measurement per blob that
+    converges - this is the general case for when phase/motion control
+    might produce zero, one, or several spots in a frame.
+    """
+    blobs = find_spot_blobs(frame, min_size=min_size)
+    if not blobs:
+        raise ValueError("No pixels above threshold; spot not found")
+
+    measurements = []
+    for row_slice, col_slice in blobs:
+        try:
+            measurements.append(_fit_gaussian(frame, row_slice, col_slice))
+        except ValueError:
+            continue
+    if not measurements:
+        raise ValueError("Gaussian fit did not converge for any detected blob")
+    return measurements
+
+
+def measure_spot(frame: np.ndarray) -> SpotMeasurement:
+    """Locate the single (brightest) laser spot in a frame and fit a 2D
+    Gaussian to it. Convenience wrapper for the static single-spot case -
+    see `measure_spots` for frames that may contain more than one blob.
+    """
+    return measure_spots(frame)[0]

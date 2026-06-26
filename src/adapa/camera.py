@@ -64,6 +64,11 @@ class UvcCamera:
         width, height = resolution
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        # Request the camera's uncompressed format explicitly - left
+        # unset, DirectShow may negotiate MJPEG instead, and that lossy
+        # block compression would bias the Gaussian fit the same way it
+        # does in recorded H264 footage.
+        self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"UYVY"))
 
         if exposure is not None:
             self._cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0)

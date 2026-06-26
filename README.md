@@ -11,7 +11,7 @@ range.
 ## Layout
 
 - `src/adapa/camera.py` - UVC camera capture (OpenCV, DirectShow backend); also holds the See3CAM_CU27's sensor/lens constants (2.9 µm pixel pitch, stock 2.8 mm/F1.2 M12 lens)
-- `src/adapa/detection.py` - per-frame laser spot detection (2D Gaussian fit) -> `measure_spot`
+- `src/adapa/detection.py` - per-frame spot detection: Otsu-thresholds + connected-components to find every distinct bright blob, fits a 2D Gaussian to each -> `measure_spots` (general, any number of blobs), `measure_spot` (convenience for the single-spot case, returns the brightest)
 - `src/adapa/analysis.py` - beam-waist fit across z positions -> focal length -> `fit_beam_waist`
 - `src/adapa/pipeline.py` - `FocalLengthEngine`, ties capture/detect/analyze together
 - `src/adapa/cli.py` - `adapa` command-line entry point

@@ -30,8 +30,8 @@ class FocalLengthEngine:
     wavelength: float | None = None
     _measurements: list[ZMeasurement] = field(default_factory=list)
 
-    def add_frame(self, frame: np.ndarray, z: float, threshold_fraction: float = 0.5) -> SpotMeasurement:
-        spot = measure_spot(frame, threshold_fraction=threshold_fraction)
+    def add_frame(self, frame: np.ndarray, z: float) -> SpotMeasurement:
+        spot = measure_spot(frame)
         self._measurements.append(ZMeasurement(z=z, spot=spot))
         return spot
 
