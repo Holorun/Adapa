@@ -106,9 +106,21 @@ class VideoFileSource:
     def position(self) -> int:
         return int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
 
-    def seek(self, frame_index: int) -> None:
+    def seek(self, frame_index: int, safety_margin: int = 60) -> None:
+        """Seek to `frame_index`, decoding sequentially from a safe earlier
+        anchor rather than jumping straight to the target. A direct jump in
+        inter-frame-coded video (H264 B/P frames) can land between keyframes
+        and hand back a corrupted, partially-decoded frame - confirmed
+        against real footage where a direct seek produced a single
+        fragmented frame with a bogus-looking but in-range Gaussian fit.
+        """
         frame_index = max(0, min(frame_index, self.frame_count - 1))
-        self._cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        anchor = max(0, frame_index - safety_margin)
+        self._cap.set(cv2.CAP_PROP_POS_FRAMES, anchor)
+        while self.position < frame_index:
+            ok, _ = self._cap.read()
+            if not ok:
+                break
 
     def read(self) -> np.ndarray:
         ok, frame = self._cap.read()

@@ -35,6 +35,35 @@ def _gaussian2d(coords, amplitude, cx, cy, sigma_x, sigma_y, background):
     )
 
 
+# Empirically, a static scene's frame-to-frame mean absolute pixel
+# difference sits around 0.3-0.4 (sensor/compression noise); a single
+# frame disrupted by something transient - a momentary obstruction
+# passing through the beam, airborne particles catching the scattered
+# light, or a decode artifact - jumps to ~6+. Confirmed against a real
+# such frame in exported footage. This threshold sits well above normal
+# noise and well below that kind of discontinuity.
+GLITCH_DIFF_THRESHOLD = 3.0
+
+
+def frame_difference(a: np.ndarray, b: np.ndarray) -> float:
+    """Mean absolute pixel difference between two same-shape frames."""
+    return float(np.abs(a.astype(np.float64) - b.astype(np.float64)).mean())
+
+
+def looks_like_glitch(frame: np.ndarray, prev_frame: np.ndarray | None, threshold: float = GLITCH_DIFF_THRESHOLD) -> bool:
+    """Flag a frame that differs sharply from the immediately preceding one.
+
+    Intended for an otherwise-static or slowly-changing scene (e.g. a
+    fixed laser spot during a z-scan): a sudden large jump - a momentary
+    obstruction, stray particle scatter, or a decode artifact - means
+    this frame isn't representative of the steady beam and shouldn't be
+    trusted as a real measurement without a second look.
+    """
+    if prev_frame is None or prev_frame.shape != frame.shape:
+        return False
+    return frame_difference(frame, prev_frame) > threshold
+
+
 def find_spot_roi(frame: np.ndarray, threshold_fraction: float = 0.5) -> tuple[slice, slice]:
     """Crop a region of interest around the brightest blob via intensity threshold."""
     values = frame.astype(np.float64)

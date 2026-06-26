@@ -61,6 +61,12 @@ in real time:
 - `n` - step forward one frame (while paused)
 - `p` - step back one frame (while paused)
 
+If a captured frame differs sharply from the one before it (e.g. a
+momentary obstruction passing through the beam, stray particle scatter,
+or a decode artifact), `c` will warn and ask for confirmation rather than
+silently treating it as a real measurement - confirmed against real
+footage where one frame out of ~9700 showed exactly this.
+
 ## Tests
 
 No physical camera is required - the test suite validates the detection

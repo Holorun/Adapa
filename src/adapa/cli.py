@@ -10,10 +10,21 @@ import sys
 import cv2
 
 from .camera import DEFAULT_CHANNEL, PIXEL_SIZE_MM, CameraError, UvcCamera, VideoFileSource
+from .detection import looks_like_glitch
 from .pipeline import FocalLengthEngine
 
 
-def _capture_measurement(engine: FocalLengthEngine, frame, z: float) -> float:
+def _capture_measurement(engine: FocalLengthEngine, frame, z: float, prev_frame=None) -> float:
+    if looks_like_glitch(frame, prev_frame):
+        print(
+            "Warning: this frame differs sharply from the previous one - likely a "
+            "momentary obstruction/particle scatter (or decode artifact), not the "
+            "steady beam."
+        )
+        if input("Capture anyway? [y/N]: ").strip().lower() != "y":
+            print("Skipped.")
+            return z
+
     z = float(input(f"z position for this frame (current default {z}): ") or z)
     try:
         spot = engine.add_frame(frame, z=z)
@@ -43,6 +54,7 @@ def run_live(args: argparse.Namespace) -> int:
         with UvcCamera(index=args.camera_index, channel=args.channel) as cam:
             print("Press 'c' to capture a measurement at the current z, 'f' to fit, 'q' to quit.")
             z = 0.0
+            prev_frame = None
             while True:
                 frame = cam.read()
                 cv2.imshow("Adapa - laser spot", frame)
@@ -50,9 +62,10 @@ def run_live(args: argparse.Namespace) -> int:
                 if key == ord("q"):
                     break
                 if key == ord("c"):
-                    z = _capture_measurement(engine, frame, z)
+                    z = _capture_measurement(engine, frame, z, prev_frame)
                 if key == ord("f"):
                     _print_fit(engine)
+                prev_frame = frame
     except CameraError as exc:
         print(f"Camera error: {exc}", file=sys.stderr)
         return 1
@@ -69,6 +82,7 @@ def run_from_video(args: argparse.Namespace) -> int:
             print("space=pause/play, n=step forward, p=step back, c=capture, f=fit, q=quit.")
             z = 0.0
             paused = False
+            prev_frame = None
             frame = src.read()
             while True:
                 cv2.imshow("Adapa - laser spot (video)", frame)
@@ -79,17 +93,20 @@ def run_from_video(args: argparse.Namespace) -> int:
                     paused = not paused
                 elif key == ord("n"):
                     try:
+                        prev_frame = frame
                         frame = src.read()
                     except CameraError:
                         print("End of video.")
                         paused = True
                 elif key == ord("p"):
+                    prev_frame = frame
                     frame = src.step_back()
                 elif key == ord("c"):
-                    z = _capture_measurement(engine, frame, z)
+                    z = _capture_measurement(engine, frame, z, prev_frame)
                 elif key == ord("f"):
                     _print_fit(engine)
                 elif not paused:
+                    prev_frame = frame
                     try:
                         frame = src.read()
                     except CameraError:
