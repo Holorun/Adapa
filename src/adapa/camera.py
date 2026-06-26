@@ -64,3 +64,47 @@ class UvcCamera:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+
+class VideoFileSource:
+    """Frame source reading from a previously recorded video file, so a
+    z-scan exported from the camera can be analyzed without the camera
+    attached. Same `.read()`/context-manager interface as `UvcCamera`.
+    """
+
+    def __init__(self, path: str):
+        self._cap = cv2.VideoCapture(path)
+        if not self._cap.isOpened():
+            raise CameraError(f"Could not open video file: {path}")
+
+    @property
+    def frame_count(self) -> int:
+        return int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    @property
+    def position(self) -> int:
+        return int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
+
+    def seek(self, frame_index: int) -> None:
+        frame_index = max(0, min(frame_index, self.frame_count - 1))
+        self._cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+
+    def read(self) -> np.ndarray:
+        ok, frame = self._cap.read()
+        if not ok:
+            raise CameraError("End of video file reached")
+        return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    def step_back(self) -> np.ndarray:
+        """Re-read the previous frame (one step back from the current position)."""
+        self.seek(self.position - 2)
+        return self.read()
+
+    def close(self) -> None:
+        self._cap.release()
+
+    def __enter__(self) -> "VideoFileSource":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()

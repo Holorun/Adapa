@@ -39,6 +39,21 @@ divergence angle reported too. In the capture window:
 - `f` - fit the accumulated measurements and print the focal length
 - `q` - quit
 
+### From a recorded video
+
+If you exported a z-scan video from the camera instead of running live,
+analyze it the same way by pointing at the file instead of a camera index:
+
+    adapa --video "C:\path\to\export.mp4" --wavelength 0.000650
+
+Same `c`/`f`/`q` keys as live mode, plus playback controls since you're
+scrubbing to the frame for each known z position rather than capturing
+in real time:
+
+- `space` - pause/play
+- `n` - step forward one frame (while paused)
+- `p` - step back one frame (while paused)
+
 ## Tests
 
 No physical camera is required - the test suite validates the detection
