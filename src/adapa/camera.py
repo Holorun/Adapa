@@ -54,6 +54,9 @@ class UvcCamera:
         index: int = 0,
         resolution: tuple[int, int] = RESOLUTIONS["fhd"],
         exposure: float | None = None,
+        brightness: float | None = None,
+        contrast: float | None = None,
+        auto_white_balance: bool | None = None,
         channel: str = DEFAULT_CHANNEL,
     ):
         self._cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
@@ -64,15 +67,40 @@ class UvcCamera:
         width, height = resolution
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        # Request the camera's uncompressed format explicitly - left
-        # unset, DirectShow may negotiate MJPEG instead, and that lossy
-        # block compression would bias the Gaussian fit the same way it
-        # does in recorded H264 footage.
-        self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"UYVY"))
+        # Do NOT force UYVY here. Per the datasheet, raw UYVY at FHD needs
+        # USB 3.1 Gen 1 - USB 2.0 only gets MJPEG at that resolution. Tested
+        # against the real camera: forcing CAP_PROP_FOURCC to UYVY produced
+        # corrupted full-frame noise (likely falling back to USB 2.0
+        # bandwidth on this connection), while leaving it unset and letting
+        # DirectShow auto-negotiate (which picked MJPEG) gave a real frame.
+        # If a clean USB 3.1 link is confirmed, VGA resolution is the safest
+        # bet for guaranteed uncompressed UYVY on either USB version.
 
         if exposure is not None:
             self._cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0)
             self._cap.set(cv2.CAP_PROP_EXPOSURE, exposure)
+
+        # Confirmed against the real camera (DirectShow/CAP_DSHOW on this
+        # device): BRIGHTNESS and CONTRAST genuinely change the captured
+        # pixels. GAIN, FOCUS, SHARPNESS, BACKLIGHT and WB_TEMPERATURE are
+        # rejected outright by this driver (cap.set returns False), and
+        # ZOOM/PAN/TILT report success but produce no visible change - this
+        # is a fixed M12-lens board camera with no motorized optics, so
+        # DirectShow is just accepting the call without backing hardware.
+        # Left unwired here on purpose; wiring up a no-op control just
+        # invites someone to "tune" it and wonder why nothing happens.
+        if brightness is not None:
+            self._cap.set(cv2.CAP_PROP_BRIGHTNESS, brightness)
+        if contrast is not None:
+            self._cap.set(cv2.CAP_PROP_CONTRAST, contrast)
+        if auto_white_balance is not None:
+            # AWB rescales per-channel gain to neutralize color cast. Left on,
+            # it could quietly apply a shifting gain to the red channel this
+            # app reads as the beam-intensity proxy (see DEFAULT_CHANNEL),
+            # which would corrupt the Gaussian fit independent of the beam
+            # itself. Exposed so it can be pinned explicitly rather than
+            # relying on whatever the driver defaults to.
+            self._cap.set(cv2.CAP_PROP_AUTO_WB, 1.0 if auto_white_balance else 0.0)
 
     def read(self) -> np.ndarray:
         """Grab one frame as a single intensity channel (see `DEFAULT_CHANNEL`)."""

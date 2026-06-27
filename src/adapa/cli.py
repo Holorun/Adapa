@@ -8,10 +8,20 @@ import argparse
 import sys
 
 import cv2
+import numpy as np
 
 from .camera import DEFAULT_CHANNEL, PIXEL_SIZE_MM, CameraError, UvcCamera, VideoFileSource
 from .detection import looks_like_glitch
 from .pipeline import FocalLengthEngine
+
+# How often (ms) to retry cam.read() and repaint the window while disconnected.
+DISCONNECTED_RETRY_MS = 200
+
+
+def _message_frame(shape: tuple[int, int], message: str) -> np.ndarray:
+    frame = np.zeros(shape, dtype=np.uint8)
+    cv2.putText(frame, message, (20, shape[0] // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.8, 255, 2, cv2.LINE_AA)
+    return frame
 
 
 def _capture_measurement(engine: FocalLengthEngine, frame, z: float, prev_frame=None) -> float:
@@ -50,26 +60,50 @@ def _print_fit(engine: FocalLengthEngine) -> None:
 
 def run_live(args: argparse.Namespace) -> int:
     engine = FocalLengthEngine(pixel_size=args.pixel_size, wavelength=args.wavelength)
+    print("Press 'c' to capture a measurement at the current z, 'f' to fit, 'q' to quit.")
+    z = 0.0
+    prev_frame = None
+    frame_shape = (480, 640)
+    cam: UvcCamera | None = None
     try:
-        with UvcCamera(index=args.camera_index, channel=args.channel) as cam:
-            print("Press 'c' to capture a measurement at the current z, 'f' to fit, 'q' to quit.")
-            z = 0.0
-            prev_frame = None
-            while True:
+        while True:
+            if cam is None:
+                try:
+                    cam = UvcCamera(
+                        index=args.camera_index,
+                        channel=args.channel,
+                        exposure=args.exposure,
+                        brightness=args.brightness,
+                        contrast=args.contrast,
+                        auto_white_balance=args.auto_white_balance,
+                    )
+                except CameraError as exc:
+                    cv2.imshow("Adapa - laser spot", _message_frame(frame_shape, f"Camera disconnected: {exc}"))
+                    if (cv2.waitKey(DISCONNECTED_RETRY_MS) & 0xFF) == ord("q"):
+                        break
+                    continue
+            try:
                 frame = cam.read()
-                cv2.imshow("Adapa - laser spot", frame)
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord("q"):
+            except CameraError as exc:
+                cam.close()
+                cam = None
+                cv2.imshow("Adapa - laser spot", _message_frame(frame_shape, f"Camera disconnected: {exc}"))
+                if (cv2.waitKey(DISCONNECTED_RETRY_MS) & 0xFF) == ord("q"):
                     break
-                if key == ord("c"):
-                    z = _capture_measurement(engine, frame, z, prev_frame)
-                if key == ord("f"):
-                    _print_fit(engine)
-                prev_frame = frame
-    except CameraError as exc:
-        print(f"Camera error: {exc}", file=sys.stderr)
-        return 1
+                continue
+            frame_shape = frame.shape
+            cv2.imshow("Adapa - laser spot", frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                break
+            if key == ord("c"):
+                z = _capture_measurement(engine, frame, z, prev_frame)
+            if key == ord("f"):
+                _print_fit(engine)
+            prev_frame = frame
     finally:
+        if cam is not None:
+            cam.close()
         cv2.destroyAllWindows()
     return 0
 
@@ -139,12 +173,51 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["red", "green", "blue", "gray", "max"],
         help="Which intensity channel to read from each color frame (default: red, tuned for the 780nm laser)",
     )
+    parser.add_argument(
+        "--web", action="store_true", help="Serve the live feed as a browser page instead of an OpenCV window"
+    )
+    parser.add_argument("--port", type=int, default=7400, help="Port for the web UI (used with --web)")
+    parser.add_argument(
+        "--exposure", type=float, default=None, help="Manual exposure value (switches off auto-exposure)"
+    )
+    parser.add_argument(
+        "--brightness", type=float, default=None, help="Manual brightness (confirmed real on the See3CAM_CU27)"
+    )
+    parser.add_argument(
+        "--contrast", type=float, default=None, help="Manual contrast (confirmed real on the See3CAM_CU27)"
+    )
+    parser.add_argument(
+        "--auto-white-balance",
+        dest="auto_white_balance",
+        action="store_true",
+        default=None,
+        help="Enable auto white balance (off by default to keep the red channel reading stable)",
+    )
+    parser.add_argument(
+        "--no-auto-white-balance",
+        dest="auto_white_balance",
+        action="store_false",
+        help="Explicitly disable auto white balance",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.web:
+        from .web import run as run_web
+
+        run_web(
+            camera_index=args.camera_index,
+            channel=args.channel,
+            port=args.port,
+            exposure=args.exposure,
+            brightness=args.brightness,
+            contrast=args.contrast,
+            auto_white_balance=args.auto_white_balance,
+        )
+        return 0
     if args.video:
         return run_from_video(args)
     return run_live(args)

@@ -12,6 +12,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 fiji = ["pyimagej>=1.5"]
+web = ["flask>=3.0"]
 
 [project.scripts]
 adapa = "adapa.cli:main"
